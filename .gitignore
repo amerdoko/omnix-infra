@@ -1,0 +1,1 @@
+.terraform/*.tfstate*.tfstate.*.terraform.lock.hcl.localcrash.log*.tfplan# Allow env-level tfvars (config not secrets)/*.tfvars.tf-mi-*.txt# Local apply/plan logs*-apply*.log*-plan*.lognohup.out*tfplan*

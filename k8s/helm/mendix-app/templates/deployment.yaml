@@ -1,0 +1,51 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mendix-app
+  namespace: mendix
+  labels:
+    app: mendix-app
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      app: mendix-app
+  template:
+    metadata:
+      labels:
+        app: mendix-app
+        azure.workload.identity/use: "true"
+    spec:
+      serviceAccountName: mendix-app
+      containers:
+        - name: app
+          image: {{ if .Values.placeholder.enabled }}{{ .Values.placeholder.image }}{{ else }}{{ .Values.image.repository }}:{{ .Values.image.tag }}{{ end }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.containerPort }}
+          resources:
+{{ toYaml .Values.resources | indent 12 }}
+          volumeMounts:
+            - name: kv-secrets
+              mountPath: /mnt/secrets
+              readOnly: true
+{{- if .Values.fileShare.enabled }}
+            - name: mendix-files
+              mountPath: /opt/mendix/data
+{{- end }}
+          env:
+            - name: DB_CONNECTION_FILE
+              value: /mnt/secrets/MendixDatabaseConnection
+      volumes:
+        - name: kv-secrets
+          csi:
+            driver: secrets-store.csi.k8s.io
+            readOnly: true
+            volumeAttributes:
+              secretProviderClass: mendix-kv
+{{- if .Values.fileShare.enabled }}
+        - name: mendix-files
+          persistentVolumeClaim:
+            claimName: mendix-files
+{{- end }}

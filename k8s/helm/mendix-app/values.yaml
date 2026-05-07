@@ -1,0 +1,53 @@
+replicaCount: 2
+
+image:
+  repository: ""           # e.g. acromnix<suffix>.azurecr.io/omnix-mendix
+  tag: latest
+  pullPolicy: IfNotPresent
+
+# When true, deploy a placeholder nginx welcome page. When false, deploy the real Mendix image.
+placeholder:
+  enabled: true
+  image: nginxdemos/hello:plain-text
+
+containerPort: 8080
+
+# Workload Identity — output from terraform (workload_identity_client_id)
+workloadIdentity:
+  clientId: ""
+  tenantId: ""
+
+# Azure Key Vault (output from terraform: key_vault_name)
+keyVault:
+  name: ""
+  secrets:
+    - MendixDatabaseConnection
+    - MendixDatabasePassword
+    - MendixStorageAccountKey
+
+# Azure Files persistent storage (output: storage_account_name)
+fileShare:
+  enabled: true
+  storageAccountName: ""
+  shareName: mendix
+  sizeGi: 5
+
+resources:
+  requests:
+    cpu: 200m
+    memory: 512Mi
+  limits:
+    cpu: 1000m
+    memory: 2Gi
+
+autoscaling:
+  enabled: true
+  minReplicas: 2
+  maxReplicas: 10
+  targetCPUUtilizationPercentage: 70
+
+# AGC ingress (Gateway API)
+gateway:
+  enabled: true
+  className: azure-alb-external
+  hostname: ""             # FQDN later, leave empty for IP-based

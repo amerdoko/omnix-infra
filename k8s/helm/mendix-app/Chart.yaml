@@ -1,0 +1,6 @@
+apiVersion: v2
+name: mendix-app
+description: Sample Mendix application Helm chart for AKS + AGC + Workload Identity + KV CSI
+type: application
+version: 0.1.0
+appVersion: "1.0.0"

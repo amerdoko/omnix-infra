@@ -1,0 +1,40 @@
+replicaCount: 2
+
+image:
+  repository: nginxdemos/hello
+  tag: plain-text
+  pullPolicy: IfNotPresent
+
+placeholder:
+  enabled: true
+  image: nginxdemos/hello:plain-text
+
+containerPort: 80
+
+workloadIdentity:
+  clientId: d63e470f-9f81-4d58-8c19-ba5d04b9fd6a
+  tenantId: f18bd124-cda1-42b5-929a-51779df22782
+
+keyVault:
+  name: kv-omnix-dev-9hho
+  secrets:
+    - MendixDatabaseConnection
+    - MendixDatabasePassword
+    - MendixStorageAccountKey
+
+fileShare:
+  enabled: false
+
+resources:
+  requests:
+    cpu: 50m
+    memory: 64Mi
+  limits:
+    cpu: 200m
+    memory: 256Mi
+
+autoscaling:
+  enabled: false
+
+gateway:
+  enabled: false

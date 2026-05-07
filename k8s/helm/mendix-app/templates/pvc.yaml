@@ -1,0 +1,14 @@
+{{- if .Values.fileShare.enabled }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: mendix-files
+  namespace: mendix
+spec:
+  accessModes:
+    - ReadWriteMany
+  storageClassName: azurefile-csi
+  resources:
+    requests:
+      storage: {{ .Values.fileShare.sizeGi }}Gi
+{{- end }}
