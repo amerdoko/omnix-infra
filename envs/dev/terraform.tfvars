@@ -26,8 +26,8 @@ storage_replication_type = "LRS"
 use_dr_aks_dns_zone      = false
 
 # Allow runner public IP for KV writes (until everything is reachable via Bastion/jump VM)
-kv_public_network_access_enabled = false
-kv_network_acls_default_action  = "Deny"
+kv_public_network_access_enabled = true
+kv_network_acls_default_action  = "Allow"
 kv_network_acls_ip_rules         = []
 
 tags = {

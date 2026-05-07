@@ -112,6 +112,11 @@ resource "azurerm_kubernetes_cluster" "this" {
     azure_rbac_enabled     = true
   }
 
+  key_vault_secrets_provider {
+    secret_rotation_enabled  = false
+    secret_rotation_interval = "2m"
+  }
+
   default_node_pool {
     name                         = "system"
     vm_size                      = var.node_vm_size

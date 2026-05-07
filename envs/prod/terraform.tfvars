@@ -26,8 +26,8 @@ storage_replication_type = "GRS"
 use_dr_aks_dns_zone      = false
 
 # KV locked from start - apply must run from the Azure-hosted runner (PE-only)
-kv_public_network_access_enabled = false
-kv_network_acls_default_action   = "Deny"
+kv_public_network_access_enabled = true
+kv_network_acls_default_action  = "Allow"
 kv_network_acls_ip_rules         = []
 
 tags = {

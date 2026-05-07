@@ -25,8 +25,8 @@ storage_replication_type = "LRS"
 use_dr_aks_dns_zone      = false
 
 # Same KV posture as dev for now. Will tighten after the Azure-hosted runner is in place.
-kv_public_network_access_enabled = false
-kv_network_acls_default_action  = "Deny"
+kv_public_network_access_enabled = true
+kv_network_acls_default_action  = "Allow"
 kv_network_acls_ip_rules         = []
 
 tags = {
