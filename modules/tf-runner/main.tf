@@ -102,7 +102,7 @@ resource "azurerm_linux_virtual_machine" "this" {
   os_disk {
     name                 = "osdisk-${var.name_prefix}-tfrunner"
     caching              = "ReadWrite"
-    storage_account_type = "StandardSSD_LRS"
+    storage_account_type = "Standard_LRS"
     disk_size_gb         = 64
   }
 
@@ -114,6 +114,9 @@ resource "azurerm_linux_virtual_machine" "this" {
   }
 
   identity { type = "SystemAssigned" }
+
+  secure_boot_enabled = true
+  vtpm_enabled        = true
 
   custom_data = base64encode(local.cloud_init)
 }
