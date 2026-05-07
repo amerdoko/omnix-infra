@@ -15,7 +15,7 @@ on:
   workflow_dispatch:
     inputs:
       env:
-        description: 'Environment to apply (shared|dev|sit|prod|dr)'
+        description: 'Environment to apply'
         required: true
         default: 'dev'
         type: choice
@@ -44,7 +44,6 @@ env:
   TFSTATE_CONTAINER: tfstate
 
 jobs:
-  # ---------- PR PLAN ----------
   plan:
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
@@ -59,7 +58,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: hashicorp/setup-terraform@v3
-        with: { terraform_version: '${{ env.TF_VERSION }}' }
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
       - uses: azure/login@v2
         with:
           client-id: ${{ vars.AZURE_CLIENT_ID }}
@@ -104,16 +104,18 @@ jobs:
               issue_number: context.issue.number, body
             });
 
-  # ---------- APPLY ON MERGE TO MAIN ----------
   apply-shared:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     environment: shared
-    defaults: { run: { working-directory: envs/shared } }
+    defaults:
+      run:
+        working-directory: envs/shared
     steps:
       - uses: actions/checkout@v4
       - uses: hashicorp/setup-terraform@v3
-        with: { terraform_version: '${{ env.TF_VERSION }}' }
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
       - uses: azure/login@v2
         with:
           client-id: ${{ vars.AZURE_CLIENT_ID }}
@@ -132,11 +134,14 @@ jobs:
     needs: apply-shared
     runs-on: ubuntu-latest
     environment: dev
-    defaults: { run: { working-directory: envs/dev } }
+    defaults:
+      run:
+        working-directory: envs/dev
     steps:
       - uses: actions/checkout@v4
       - uses: hashicorp/setup-terraform@v3
-        with: { terraform_version: '${{ env.TF_VERSION }}' }
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
       - uses: azure/login@v2
         with:
           client-id: ${{ vars.AZURE_CLIENT_ID }}
@@ -155,11 +160,14 @@ jobs:
     needs: apply-dev
     runs-on: ubuntu-latest
     environment: sit
-    defaults: { run: { working-directory: envs/sit } }
+    defaults:
+      run:
+        working-directory: envs/sit
     steps:
       - uses: actions/checkout@v4
       - uses: hashicorp/setup-terraform@v3
-        with: { terraform_version: '${{ env.TF_VERSION }}' }
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
       - uses: azure/login@v2
         with:
           client-id: ${{ vars.AZURE_CLIENT_ID }}
@@ -178,11 +186,14 @@ jobs:
     needs: apply-sit
     runs-on: ubuntu-latest
     environment: prod
-    defaults: { run: { working-directory: envs/prod } }
+    defaults:
+      run:
+        working-directory: envs/prod
     steps:
       - uses: actions/checkout@v4
       - uses: hashicorp/setup-terraform@v3
-        with: { terraform_version: '${{ env.TF_VERSION }}' }
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
       - uses: azure/login@v2
         with:
           client-id: ${{ vars.AZURE_CLIENT_ID }}
@@ -201,11 +212,14 @@ jobs:
     needs: apply-prod
     runs-on: ubuntu-latest
     environment: dr
-    defaults: { run: { working-directory: envs/dr } }
+    defaults:
+      run:
+        working-directory: envs/dr
     steps:
       - uses: actions/checkout@v4
       - uses: hashicorp/setup-terraform@v3
-        with: { terraform_version: '${{ env.TF_VERSION }}' }
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
       - uses: azure/login@v2
         with:
           client-id: ${{ vars.AZURE_CLIENT_ID }}
@@ -219,22 +233,23 @@ jobs:
             -backend-config="key=dr.tfstate"
       - run: terraform apply -input=false -auto-approve
 
-  # ---------- ONE-OFF DISPATCH ----------
   dispatch:
     if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
-    environment: ${{ inputs.env || 'dev' }}
-    defaults: { run: { working-directory: envs/${{ inputs.env || 'dev' }} } }
+    environment: ${{ inputs.env }}
     steps:
       - uses: actions/checkout@v4
       - uses: hashicorp/setup-terraform@v3
-        with: { terraform_version: '${{ env.TF_VERSION }}' }
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
       - uses: azure/login@v2
         with:
           client-id: ${{ vars.AZURE_CLIENT_ID }}
           tenant-id: ${{ vars.AZURE_TENANT_ID }}
           subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
-      - run: |
+      - name: init
+        working-directory: envs/${{ inputs.env }}
+        run: |
           terraform init -input=false \
             -backend-config="resource_group_name=${TFSTATE_RG}" \
             -backend-config="storage_account_name=${TFSTATE_SA}" \
@@ -242,7 +257,9 @@ jobs:
             -backend-config="key=${{ inputs.env }}.tfstate"
       - name: plan
         if: ${{ inputs.action == 'plan' }}
+        working-directory: envs/${{ inputs.env }}
         run: terraform plan -input=false
       - name: apply
         if: ${{ inputs.action == 'apply' }}
+        working-directory: envs/${{ inputs.env }}
         run: terraform apply -input=false -auto-approve
