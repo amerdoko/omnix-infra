@@ -1,0 +1,248 @@
+name: terraform
+
+on:
+  pull_request:
+    paths:
+      - 'envs/**'
+      - 'modules/**'
+      - '.github/workflows/terraform.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'envs/**'
+      - 'modules/**'
+      - '.github/workflows/terraform.yml'
+  workflow_dispatch:
+    inputs:
+      env:
+        description: 'Environment to apply (shared|dev|sit|prod|dr)'
+        required: true
+        default: 'dev'
+        type: choice
+        options: [shared, dev, sit, prod, dr]
+      action:
+        description: 'plan or apply'
+        required: true
+        default: 'plan'
+        type: choice
+        options: [plan, apply]
+
+permissions:
+  id-token: write
+  contents: read
+  pull-requests: write
+
+env:
+  TF_VERSION: 1.9.8
+  ARM_USE_AZUREAD: 'true'
+  ARM_USE_OIDC: 'true'
+  ARM_CLIENT_ID: ${{ vars.AZURE_CLIENT_ID }}
+  ARM_TENANT_ID: ${{ vars.AZURE_TENANT_ID }}
+  ARM_SUBSCRIPTION_ID: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+  TFSTATE_RG: rg-omnix-tfstate
+  TFSTATE_SA: stomnixtfst4srcwm
+  TFSTATE_CONTAINER: tfstate
+
+jobs:
+  # ---------- PR PLAN ----------
+  plan:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        env: [shared, dev, sit, prod, dr]
+    environment: ${{ matrix.env }}
+    defaults:
+      run:
+        working-directory: envs/${{ matrix.env }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+        with: { terraform_version: '${{ env.TF_VERSION }}' }
+      - uses: azure/login@v2
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+      - name: fmt
+        run: terraform fmt -check -recursive ../..
+        continue-on-error: true
+      - name: init
+        run: |
+          terraform init -input=false \
+            -backend-config="resource_group_name=${TFSTATE_RG}" \
+            -backend-config="storage_account_name=${TFSTATE_SA}" \
+            -backend-config="container_name=${TFSTATE_CONTAINER}" \
+            -backend-config="key=${{ matrix.env }}.tfstate"
+      - name: validate
+        run: terraform validate
+      - name: plan
+        id: plan
+        run: |
+          set +e
+          terraform plan -input=false -no-color -detailed-exitcode -out=tfplan 2> plan.err > plan.out
+          echo "exit=$?" >> $GITHUB_OUTPUT
+          tail -c 60000 plan.out > plan.tail
+          true
+      - name: comment plan
+        if: always()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const env = '${{ matrix.env }}';
+            const exit = '${{ steps.plan.outputs.exit }}';
+            let body = `### terraform plan: \`${env}\` (exit=${exit})\n\n`;
+            try { body += '```hcl\n' + fs.readFileSync(`envs/${env}/plan.tail`, 'utf8') + '\n```\n'; } catch(e) { body += '_no plan output_'; }
+            try {
+              const err = fs.readFileSync(`envs/${env}/plan.err`, 'utf8');
+              if (err.trim()) body += '\n<details><summary>stderr</summary>\n\n```\n' + err + '\n```\n</details>\n';
+            } catch(e) {}
+            await github.rest.issues.createComment({
+              owner: context.repo.owner, repo: context.repo.repo,
+              issue_number: context.issue.number, body
+            });
+
+  # ---------- APPLY ON MERGE TO MAIN ----------
+  apply-shared:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment: shared
+    defaults: { run: { working-directory: envs/shared } }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+        with: { terraform_version: '${{ env.TF_VERSION }}' }
+      - uses: azure/login@v2
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+      - run: |
+          terraform init -input=false \
+            -backend-config="resource_group_name=${TFSTATE_RG}" \
+            -backend-config="storage_account_name=${TFSTATE_SA}" \
+            -backend-config="container_name=${TFSTATE_CONTAINER}" \
+            -backend-config="key=shared.tfstate"
+      - run: terraform apply -input=false -auto-approve
+
+  apply-dev:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: apply-shared
+    runs-on: ubuntu-latest
+    environment: dev
+    defaults: { run: { working-directory: envs/dev } }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+        with: { terraform_version: '${{ env.TF_VERSION }}' }
+      - uses: azure/login@v2
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+      - run: |
+          terraform init -input=false \
+            -backend-config="resource_group_name=${TFSTATE_RG}" \
+            -backend-config="storage_account_name=${TFSTATE_SA}" \
+            -backend-config="container_name=${TFSTATE_CONTAINER}" \
+            -backend-config="key=dev.tfstate"
+      - run: terraform apply -input=false -auto-approve
+
+  apply-sit:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: apply-dev
+    runs-on: ubuntu-latest
+    environment: sit
+    defaults: { run: { working-directory: envs/sit } }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+        with: { terraform_version: '${{ env.TF_VERSION }}' }
+      - uses: azure/login@v2
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+      - run: |
+          terraform init -input=false \
+            -backend-config="resource_group_name=${TFSTATE_RG}" \
+            -backend-config="storage_account_name=${TFSTATE_SA}" \
+            -backend-config="container_name=${TFSTATE_CONTAINER}" \
+            -backend-config="key=sit.tfstate"
+      - run: terraform apply -input=false -auto-approve
+
+  apply-prod:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: apply-sit
+    runs-on: ubuntu-latest
+    environment: prod
+    defaults: { run: { working-directory: envs/prod } }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+        with: { terraform_version: '${{ env.TF_VERSION }}' }
+      - uses: azure/login@v2
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+      - run: |
+          terraform init -input=false \
+            -backend-config="resource_group_name=${TFSTATE_RG}" \
+            -backend-config="storage_account_name=${TFSTATE_SA}" \
+            -backend-config="container_name=${TFSTATE_CONTAINER}" \
+            -backend-config="key=prod.tfstate"
+      - run: terraform apply -input=false -auto-approve
+
+  apply-dr:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: apply-prod
+    runs-on: ubuntu-latest
+    environment: dr
+    defaults: { run: { working-directory: envs/dr } }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+        with: { terraform_version: '${{ env.TF_VERSION }}' }
+      - uses: azure/login@v2
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+      - run: |
+          terraform init -input=false \
+            -backend-config="resource_group_name=${TFSTATE_RG}" \
+            -backend-config="storage_account_name=${TFSTATE_SA}" \
+            -backend-config="container_name=${TFSTATE_CONTAINER}" \
+            -backend-config="key=dr.tfstate"
+      - run: terraform apply -input=false -auto-approve
+
+  # ---------- ONE-OFF DISPATCH ----------
+  dispatch:
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.env || 'dev' }}
+    defaults: { run: { working-directory: envs/${{ inputs.env || 'dev' }} } }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+        with: { terraform_version: '${{ env.TF_VERSION }}' }
+      - uses: azure/login@v2
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+      - run: |
+          terraform init -input=false \
+            -backend-config="resource_group_name=${TFSTATE_RG}" \
+            -backend-config="storage_account_name=${TFSTATE_SA}" \
+            -backend-config="container_name=${TFSTATE_CONTAINER}" \
+            -backend-config="key=${{ inputs.env }}.tfstate"
+      - name: plan
+        if: ${{ inputs.action == 'plan' }}
+        run: terraform plan -input=false
+      - name: apply
+        if: ${{ inputs.action == 'apply' }}
+        run: terraform apply -input=false -auto-approve
