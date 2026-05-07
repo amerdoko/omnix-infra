@@ -1,0 +1,95 @@
+name: Terraform Drift Detection
+
+on:
+  schedule:
+    # 07:00 UTC = 02:00 CT (CDT). Runs every day.
+    - cron: '0 7 * * *'
+  workflow_dispatch:
+
+permissions:
+  id-token: write
+  contents: read
+  issues: write
+
+env:
+  TF_VERSION: 1.15.1
+  ARM_USE_AZUREAD: 'true'
+  ARM_USE_OIDC: 'true'
+  ARM_CLIENT_ID: ${{ vars.AZURE_CLIENT_ID }}
+  ARM_TENANT_ID: ${{ vars.AZURE_TENANT_ID }}
+  ARM_SUBSCRIPTION_ID: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+
+jobs:
+  drift:
+    name: drift-${{ matrix.env }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        env: [shared, dev, sit, prod, dr]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: azure/login@v2
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+
+      - name: terraform init
+        working-directory: envs/${{ matrix.env }}
+        run: terraform init -backend-config="key=${{ matrix.env }}.tfstate" -input=false -no-color
+
+      - name: terraform plan (detect drift)
+        id: plan
+        working-directory: envs/${{ matrix.env }}
+        run: |
+          set +e
+          terraform plan -detailed-exitcode -lock=false -input=false -no-color -out=drift.tfplan
+          ec=$?
+          echo "exit_code=$ec" >> "$GITHUB_OUTPUT"
+          if [ $ec -eq 2 ]; then
+            terraform show -no-color drift.tfplan > drift.txt
+            echo "DRIFT detected in env=${{ matrix.env }}"
+          elif [ $ec -eq 0 ]; then
+            echo "No drift in env=${{ matrix.env }}"
+          else
+            echo "Plan errored with code $ec"
+            exit $ec
+          fi
+
+      - name: Upload drift report
+        if: steps.plan.outputs.exit_code == '2'
+        uses: actions/upload-artifact@v4
+        with:
+          name: drift-${{ matrix.env }}
+          path: envs/${{ matrix.env }}/drift.txt
+
+      - name: Open GitHub issue on drift
+        if: steps.plan.outputs.exit_code == '2'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          ENV="${{ matrix.env }}"
+          DATE=$(date -u +%Y-%m-%d)
+          TITLE="Drift detected: ${ENV} (${DATE})"
+          BODY="Terraform detected configuration drift in env=${ENV}.\n\nView the drift report in the [run artifacts](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}).\n\n_Auto-filed by drift workflow._"
+          existing=$(gh issue list --repo "${{ github.repository }}" --label drift --state open --search "in:title $TITLE" --json number --jq '.[0].number' || echo "")
+          if [ -z "$existing" ]; then
+            gh issue create --repo "${{ github.repository }}" --title "$TITLE" --body "$BODY" --label drift || true
+          else
+            gh issue comment "$existing" --repo "${{ github.repository }}" --body "$BODY" || true
+          fi
+
+      - name: Send Teams notification on drift
+        if: steps.plan.outputs.exit_code == '2' && env.TEAMS_WEBHOOK_URL != ''
+        env:
+          TEAMS_WEBHOOK_URL: ${{ secrets.TEAMS_WEBHOOK_URL }}
+        run: |
+          curl -sS -H 'Content-Type: application/json' \
+            -d '{"text":"⚠️ TF drift detected in env=${{ matrix.env }} on ${{ github.repository }}. See run #${{ github.run_id }}"}' \
+            "$TEAMS_WEBHOOK_URL" || true
