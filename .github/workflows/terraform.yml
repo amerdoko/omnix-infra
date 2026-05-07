@@ -33,7 +33,7 @@ permissions:
   pull-requests: write
 
 env:
-  TF_VERSION: 1.9.8
+  TF_VERSION: 1.15.1
   ARM_USE_AZUREAD: 'true'
   ARM_USE_OIDC: 'true'
   ARM_CLIENT_ID: ${{ vars.AZURE_CLIENT_ID }}
