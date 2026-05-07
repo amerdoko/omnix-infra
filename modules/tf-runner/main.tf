@@ -119,6 +119,10 @@ resource "azurerm_linux_virtual_machine" "this" {
   vtpm_enabled        = true
 
   custom_data = base64encode(local.cloud_init)
+
+  lifecycle {
+    ignore_changes = [custom_data]
+  }
 }
 
 resource "azurerm_dev_test_global_vm_shutdown_schedule" "this" {
